@@ -69,7 +69,9 @@ describe('credential-proxy', () => {
     tokenServer = http.createServer((_req, res) => {
       const expires = new Date(Date.now() + 3600_000).toISOString();
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ token: 'copilot-token-xyz', expires_at: expires }));
+      res.end(
+        JSON.stringify({ token: 'copilot-token-xyz', expires_at: expires }),
+      );
     });
     await new Promise<void>((resolve) =>
       tokenServer.listen(0, '127.0.0.1', resolve),
@@ -231,7 +233,9 @@ describe('credential-proxy', () => {
     );
 
     // Proxy must replace placeholder with the fresh Copilot token
-    expect(lastUpstreamHeaders['authorization']).toBe('Bearer copilot-token-xyz');
+    expect(lastUpstreamHeaders['authorization']).toBe(
+      'Bearer copilot-token-xyz',
+    );
   });
 
   it('Copilot mode injects copilot-integration-id header', async () => {

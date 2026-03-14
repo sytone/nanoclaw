@@ -20,6 +20,7 @@
 
 import * as https from 'https';
 import * as http from 'http';
+import type { IncomingMessage } from 'http';
 import fs from 'fs';
 import path from 'path';
 import { logger } from './logger.js';
@@ -48,6 +49,26 @@ export interface CopilotTokenResponse {
   expires_at: string;
 }
 
+/** Collect a response body and resolve as parsed JSON. */
+function collectJson(res: IncomingMessage): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    res.on('data', (c: Buffer) => chunks.push(c));
+    res.on('end', () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString()));
+      } catch {
+        reject(
+          new Error(
+            `Failed to parse response: ${Buffer.concat(chunks).toString()}`,
+          ),
+        );
+      }
+    });
+    res.on('error', reject);
+  });
+}
+
 /** Simple HTTPS/HTTP POST helper that returns the parsed JSON body. */
 function httpPost(
   url: string,
@@ -58,7 +79,6 @@ function httpPost(
     const body = new URLSearchParams(params).toString();
     const parsed = new URL(url);
     const isHttps = parsed.protocol === 'https:';
-    const lib = isHttps ? https : http;
 
     const options = {
       hostname: parsed.hostname,
@@ -74,21 +94,9 @@ function httpPost(
       },
     };
 
-    const req = (isHttps ? https : http).request(options, (res) => {
-      const chunks: Buffer[] = [];
-      res.on('data', (c: Buffer) => chunks.push(c));
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(Buffer.concat(chunks).toString()));
-        } catch {
-          reject(
-            new Error(
-              `Failed to parse response: ${Buffer.concat(chunks).toString()}`,
-            ),
-          );
-        }
-      });
-    });
+    const req = isHttps
+      ? https.request(options, (res) => collectJson(res).then(resolve, reject))
+      : http.request(options, (res) => collectJson(res).then(resolve, reject));
     req.on('error', reject);
     req.write(body);
     req.end();
@@ -116,21 +124,11 @@ function httpGet(
       },
     };
 
-    (isHttps ? https : http).request(options, (res) => {
-      const chunks: Buffer[] = [];
-      res.on('data', (c: Buffer) => chunks.push(c));
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(Buffer.concat(chunks).toString()));
-        } catch {
-          reject(
-            new Error(
-              `Failed to parse response: ${Buffer.concat(chunks).toString()}`,
-            ),
-          );
-        }
-      });
-    }).on('error', reject).end();
+    const req = isHttps
+      ? https.request(options, (res) => collectJson(res).then(resolve, reject))
+      : http.request(options, (res) => collectJson(res).then(resolve, reject));
+    req.on('error', reject);
+    req.end();
   });
 }
 
@@ -142,7 +140,10 @@ export async function requestDeviceCode(
     client_id: clientId,
     scope: 'copilot',
   });
-  const data = raw as DeviceCodeResponse & { error?: string; error_description?: string };
+  const data = raw as DeviceCodeResponse & {
+    error?: string;
+    error_description?: string;
+  };
 
   if (data.error) {
     throw new Error(
@@ -169,7 +170,11 @@ export async function pollForAccessToken(
       device_code: deviceCode,
       grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
     });
-    const data = raw as { access_token?: string; error?: string; error_description?: string };
+    const data = raw as {
+      access_token?: string;
+      error?: string;
+      error_description?: string;
+    };
 
     if (data.access_token) {
       return data.access_token;
@@ -263,8 +268,7 @@ export class CopilotTokenCache {
  * Run via: npm run copilot-auth
  */
 export async function runDeviceCodeFlow(): Promise<void> {
-  const clientId =
-    process.env.GITHUB_OAUTH_CLIENT_ID || DEFAULT_CLIENT_ID;
+  const clientId = process.env.GITHUB_OAUTH_CLIENT_ID || DEFAULT_CLIENT_ID;
 
   console.log('\n🔑  GitHub Copilot Authentication\n');
   console.log('Requesting a device code from GitHub…');
@@ -304,7 +308,9 @@ export async function runDeviceCodeFlow(): Promise<void> {
   // Write token to .env
   writeGithubToken(token);
 
-  console.log('\n✅  Done!  Run `npm start` or `npm run dev` to start NanoClaw.');
+  console.log(
+    '\n✅  Done!  Run `npm start` or `npm run dev` to start NanoClaw.',
+  );
 }
 
 /** Read the current GitHub token from .env (without exposing all secrets). */
@@ -325,7 +331,8 @@ function writeGithubToken(token: string): void {
   if (/^GITHUB_TOKEN=/m.test(content)) {
     content = content.replace(/^GITHUB_TOKEN=.*/m, `GITHUB_TOKEN=${token}`);
   } else {
-    content = content.trimEnd() + (content ? '\n' : '') + `GITHUB_TOKEN=${token}\n`;
+    content =
+      content.trimEnd() + (content ? '\n' : '') + `GITHUB_TOKEN=${token}\n`;
   }
 
   fs.writeFileSync(envPath, content, { mode: 0o600 });

@@ -103,7 +103,8 @@ export function startCredentialProxy(
             headers['authorization'] = `Bearer ${copilotToken}`;
             // Required Copilot integration headers
             headers['copilot-integration-id'] = 'vscode-chat';
-            headers['editor-version'] = headers['editor-version'] ?? 'vscode/1.85.0';
+            headers['editor-version'] =
+              headers['editor-version'] ?? 'vscode/1.85.0';
           } else if (authMode === 'api-key') {
             // API key mode: inject x-api-key on every request
             delete headers['x-api-key'];
