@@ -21,7 +21,7 @@ import { request as httpRequest, RequestOptions } from 'http';
 
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
-import { CopilotTokenCache, COPILOT_TOKEN_URL } from './github-copilot-auth.js';
+import { CopilotTokenCache, COPILOT_TOKEN_URL, readTokenFromCopilotConfigFile } from './github-copilot-auth.js';
 
 export type AuthMode = 'api-key' | 'oauth' | 'github-copilot';
 
@@ -43,8 +43,14 @@ export function startCredentialProxy(
     'COPILOT_TOKEN_URL',
   ]);
 
-  // Determine auth mode: Copilot takes priority, then API key, then OAuth
-  const authMode: AuthMode = secrets.GITHUB_TOKEN
+  // Determine auth mode: Copilot takes priority, then API key, then OAuth.
+  // GITHUB_TOKEN from .env is preferred; fall back to the local copilot
+  // credentials file (~/.config/github-copilot/hosts.json) so users who have
+  // already done `copilot login` / `gh auth login` on the host don't need to
+  // set GITHUB_TOKEN in .env at all.
+  const githubToken =
+    secrets.GITHUB_TOKEN || readTokenFromCopilotConfigFile();
+  const authMode: AuthMode = githubToken
     ? 'github-copilot'
     : secrets.ANTHROPIC_API_KEY
       ? 'api-key'
@@ -57,7 +63,7 @@ export function startCredentialProxy(
   const copilotTokenCache =
     authMode === 'github-copilot'
       ? new CopilotTokenCache(
-          secrets.GITHUB_TOKEN,
+          githubToken!,
           secrets.COPILOT_TOKEN_URL || COPILOT_TOKEN_URL,
         )
       : null;
@@ -171,7 +177,8 @@ export function startCredentialProxy(
 /** Detect which auth mode the host is configured for. */
 export function detectAuthMode(): AuthMode {
   const secrets = readEnvFile(['GITHUB_TOKEN', 'ANTHROPIC_API_KEY']);
-  if (secrets.GITHUB_TOKEN) return 'github-copilot';
+  if (secrets.GITHUB_TOKEN || readTokenFromCopilotConfigFile())
+    return 'github-copilot';
   if (secrets.ANTHROPIC_API_KEY) return 'api-key';
   return 'oauth';
 }

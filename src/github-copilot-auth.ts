@@ -22,6 +22,7 @@ import * as https from 'https';
 import * as http from 'http';
 import type { IncomingMessage } from 'http';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { logger } from './logger.js';
 import { readEnvFile } from './env.js';
@@ -317,6 +318,40 @@ export async function runDeviceCodeFlow(): Promise<void> {
 export function readGithubToken(): string | undefined {
   const secrets = readEnvFile(['GITHUB_TOKEN']);
   return secrets.GITHUB_TOKEN || undefined;
+}
+
+/**
+ * Read the GitHub OAuth token from the local Copilot CLI credentials file
+ * (`~/.config/github-copilot/hosts.json`).  This is the same file that the
+ * `gh` CLI and VS Code Copilot extension write after a `copilot login` /
+ * `gh auth login` flow, so users who have already authenticated on the host
+ * do not need to set `GITHUB_TOKEN` in `.env` at all.
+ *
+ * Returns `undefined` when the file is absent or cannot be parsed.
+ */
+export function readTokenFromCopilotConfigFile(): string | undefined {
+  const hostsFile = path.join(
+    os.homedir(),
+    '.config',
+    'github-copilot',
+    'hosts.json',
+  );
+  if (!fs.existsSync(hostsFile)) return undefined;
+
+  try {
+    const raw = fs.readFileSync(hostsFile, 'utf-8');
+    const hosts = JSON.parse(raw) as Record<
+      string,
+      { oauth_token?: string; user?: string }
+    >;
+    // Prefer github.com; fall back to first entry that has a token
+    const entry =
+      hosts['github.com'] ??
+      Object.values(hosts).find((v) => v.oauth_token);
+    return entry?.oauth_token || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Append or update GITHUB_TOKEN in the .env file. */
