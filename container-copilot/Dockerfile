@@ -1,9 +1,11 @@
-# NanoClaw Agent Container
-# Runs Claude Agent SDK in isolated Linux VM with browser automation
+# NanoClaw Copilot Agent Container
+# Parallel to container/ — uses GitHub Copilot API instead of Claude Agent SDK.
+# Credentials are injected by the host credential proxy on ANTHROPIC_BASE_URL
+# (same port as the Claude proxy, so src/container-runner.ts needs no changes).
 
 FROM node:22-slim
 
-# Install system dependencies for Chromium
+# Install system dependencies for Chromium (browser automation skill)
 RUN apt-get update && apt-get install -y \
     chromium \
     fonts-liberation \
@@ -26,17 +28,21 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Set Chromium path for agent-browser
+# Set Chromium path for agent-browser skill
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Install agent-browser and claude-code globally
-RUN npm install -g agent-browser @anthropic-ai/claude-code
+# Default Copilot model — override with docker build --build-arg COPILOT_MODEL=...
+ARG COPILOT_MODEL=gpt-4o
+ENV COPILOT_MODEL=${COPILOT_MODEL}
+
+# Install agent-browser globally (browser automation skill)
+RUN npm install -g agent-browser
 
 # Create app directory
 WORKDIR /app
 
-# Copy package files first for better caching
+# Copy package files first for better layer caching
 COPY agent-runner/package*.json ./
 
 # Install dependencies
@@ -51,19 +57,18 @@ RUN npm run build
 # Create workspace directories
 RUN mkdir -p /workspace/group /workspace/global /workspace/extra /workspace/ipc/messages /workspace/ipc/tasks /workspace/ipc/input
 
-# Create entrypoint script
-# Container input (prompt, group info) is passed via stdin JSON.
-# Credentials are injected by the host's credential proxy — never passed here.
+# Entry point: read ContainerInput JSON from stdin, output ContainerOutput JSON to stdout.
+# Credentials are injected by the host credential proxy — never passed here.
 # Follow-up messages arrive via IPC files in /workspace/ipc/input/
-RUN printf '#!/bin/bash\nset -e\ncd /app && npx tsc --outDir /tmp/dist 2>&1 >&2\nln -s /app/node_modules /tmp/dist/node_modules\nchmod -R a-w /tmp/dist\ncat > /tmp/input.json\nnode /tmp/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+RUN printf '#!/bin/bash\nset -e\nnode /app/dist/index.js\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Set ownership to node user (non-root) for writable directories
 RUN chown -R node:node /workspace && chmod 777 /home/node
 
-# Switch to non-root user (required for --dangerously-skip-permissions)
+# Switch to non-root user
 USER node
 
-# Set working directory to group workspace
+# Working directory is the group workspace (bind-mounted by the host)
 WORKDIR /workspace/group
 
 # Entry point reads JSON from stdin, outputs JSON to stdout

@@ -6,11 +6,7 @@ import { readEnvFile } from './env.js';
 // Read config values from .env (falls back to process.env).
 // Secrets (API keys, tokens) are NOT read here — they are loaded only
 // by the credential proxy (credential-proxy.ts), never exposed to containers.
-const envConfig = readEnvFile([
-  'ASSISTANT_NAME',
-  'ASSISTANT_HAS_OWN_NUMBER',
-  'COPILOT_MODEL',
-]);
+const envConfig = readEnvFile(['ASSISTANT_NAME', 'ASSISTANT_HAS_OWN_NUMBER']);
 
 export const ASSISTANT_NAME =
   process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || 'Andy';
@@ -75,11 +71,3 @@ export const TRIGGER_PATTERN = new RegExp(
 // Uses system timezone by default
 export const TIMEZONE =
   process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-// GitHub Copilot provider configuration
-// COPILOT_MODEL: the model to use for Copilot chat completions (default: gpt-4o)
-export const COPILOT_MODEL =
-  process.env.COPILOT_MODEL || envConfig.COPILOT_MODEL || 'gpt-4o';
-// COPILOT_BASE_URL: override the upstream Copilot API URL (mainly for testing)
-export const COPILOT_BASE_URL =
-  process.env.COPILOT_BASE_URL || 'https://api.githubcopilot.com';

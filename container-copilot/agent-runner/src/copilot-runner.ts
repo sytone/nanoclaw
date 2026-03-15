@@ -297,10 +297,13 @@ export async function runCopilotQuery(
   mcpServerPath: string,
   log: (msg: string) => void,
 ): Promise<CopilotQueryResult> {
-  // ── OpenAI client (routes through credential proxy) ──────────────────────
+  // ── OpenAI client (routes through credential proxy on ANTHROPIC_BASE_URL) ─
+  // The existing container-runner injects ANTHROPIC_BASE_URL pointing to the
+  // credential proxy, which transparently swaps in a real Copilot token.
   const openai = new OpenAI({
-    baseURL: process.env.COPILOT_BASE_URL || 'https://api.githubcopilot.com',
-    apiKey: process.env.GITHUB_COPILOT_TOKEN || 'placeholder',
+    baseURL: process.env.ANTHROPIC_BASE_URL || 'https://api.githubcopilot.com',
+    // The proxy replaces this placeholder with the real Copilot token
+    apiKey: process.env.ANTHROPIC_API_KEY || 'placeholder',
     defaultHeaders: {
       'Copilot-Integration-Id': 'vscode-chat',
       'editor-version': 'vscode/1.85.0',
@@ -308,6 +311,7 @@ export async function runCopilotQuery(
     },
   });
 
+  // COPILOT_MODEL can be set via Dockerfile ENV or passed by the host
   const model = process.env.COPILOT_MODEL || 'gpt-4o';
 
   // ── MCP tools ─────────────────────────────────────────────────────────────
