@@ -204,11 +204,7 @@ function buildVolumeMounts(
   // binary inside the container can authenticate using the existing
   // `copilot login` session without any extra login steps.
   // The credentials directory is user-specific and never stored in the image.
-  const copilotCredsDir = path.join(
-    os.homedir(),
-    '.config',
-    'github-copilot',
-  );
+  const copilotCredsDir = path.join(os.homedir(), '.config', 'github-copilot');
   if (fs.existsSync(copilotCredsDir)) {
     mounts.push({
       hostPath: copilotCredsDir,

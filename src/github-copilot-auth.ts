@@ -347,7 +347,8 @@ export function readTokenFromCopilotConfigFile(): string | undefined {
 }
 
 /** Write the GitHub OAuth token to ~/.config/github-copilot/hosts.json. */
-function writeCopilotHostsFile(token: string): void {  const hostsDir = path.join(os.homedir(), '.config', 'github-copilot');
+function writeCopilotHostsFile(token: string): void {
+  const hostsDir = path.join(os.homedir(), '.config', 'github-copilot');
   const hostsFile = path.join(hostsDir, 'hosts.json');
 
   fs.mkdirSync(hostsDir, { recursive: true });

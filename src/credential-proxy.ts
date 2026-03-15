@@ -22,7 +22,11 @@ import { request as httpRequest, RequestOptions } from 'http';
 
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
-import { CopilotTokenCache, COPILOT_TOKEN_URL, readTokenFromCopilotConfigFile } from './github-copilot-auth.js';
+import {
+  CopilotTokenCache,
+  COPILOT_TOKEN_URL,
+  readTokenFromCopilotConfigFile,
+} from './github-copilot-auth.js';
 
 export type AuthMode = 'api-key' | 'oauth' | 'github-copilot';
 
