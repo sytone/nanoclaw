@@ -3,8 +3,8 @@
  * GitHub Copilot OAuth device-code authentication CLI.
  * Run: npm run copilot-auth
  *
- * This walks through the GitHub OAuth device-code flow and saves
- * GITHUB_TOKEN to your .env file.  Requires an active GitHub Copilot
+ * This walks through the GitHub OAuth device-code flow and saves the token
+ * to ~/.config/github-copilot/hosts.json.  Requires an active GitHub Copilot
  * subscription on the authorised account.
  */
 import { runDeviceCodeFlow } from './github-copilot-auth.js';

@@ -73,16 +73,18 @@ describe('registered groups DB query', () => {
 });
 
 describe('credentials detection', () => {
-  it('detects GITHUB_TOKEN in env content', () => {
-    const content =
-      'SOME_KEY=value\nGITHUB_TOKEN=ghp_test123\nOTHER=foo';
-    const hasCredentials = /^GITHUB_TOKEN=/m.test(content);
+  it('detects oauth_token in copilot hosts.json', () => {
+    const hosts = { 'github.com': { oauth_token: 'ghp_test123' } };
+    const hasCredentials =
+      hosts['github.com']?.oauth_token !== undefined;
     expect(hasCredentials).toBe(true);
   });
 
   it('returns false when no credentials', () => {
-    const content = 'ASSISTANT_NAME="Andy"\nOTHER=foo';
-    const hasCredentials = /^GITHUB_TOKEN=/m.test(content);
+    const hosts = {};
+    const hasCredentials =
+      (hosts as Record<string, { oauth_token?: string }>)['github.com']
+        ?.oauth_token !== undefined;
     expect(hasCredentials).toBe(false);
   });
 });

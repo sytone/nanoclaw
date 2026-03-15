@@ -11,6 +11,16 @@ vi.mock('./logger.js', () => ({
   logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
 }));
 
+let mockCopilotToken: string | undefined;
+vi.mock('./github-copilot-auth.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('./github-copilot-auth.js')>();
+  return {
+    ...actual,
+    readTokenFromCopilotConfigFile: vi.fn(() => mockCopilotToken),
+  };
+});
+
 import { startCredentialProxy } from './credential-proxy.js';
 
 function makeRequest(
@@ -84,6 +94,7 @@ describe('credential-proxy', () => {
     await new Promise<void>((r) => upstreamServer?.close(() => r()));
     await new Promise<void>((r) => tokenServer?.close(() => r()));
     for (const key of Object.keys(mockEnv)) delete mockEnv[key];
+    mockCopilotToken = undefined;
   });
 
   async function startProxy(env: Record<string, string>): Promise<number> {
@@ -95,8 +106,8 @@ describe('credential-proxy', () => {
   }
 
   async function startCopilotProxy(githubToken: string): Promise<number> {
+    mockCopilotToken = githubToken;
     Object.assign(mockEnv, {
-      GITHUB_TOKEN: githubToken,
       COPILOT_BASE_URL: `http://127.0.0.1:${upstreamPort}`,
       COPILOT_TOKEN_URL: `http://127.0.0.1:${tokenServerPort}`,
     });
@@ -271,13 +282,13 @@ describe('credential-proxy', () => {
     expect(res.statusCode).toBe(200);
   });
 
-  it('detectAuthMode returns github-copilot when GITHUB_TOKEN is set', async () => {
+  it('detectAuthMode returns github-copilot when copilot config file has token', async () => {
     const { detectAuthMode } = await import('./credential-proxy.js');
-    Object.assign(mockEnv, { GITHUB_TOKEN: 'ghp_test' });
+    mockCopilotToken = 'ghp_test';
     expect(detectAuthMode()).toBe('github-copilot');
   });
 
-  it('detectAuthMode returns api-key when ANTHROPIC_API_KEY is set (no GITHUB_TOKEN)', async () => {
+  it('detectAuthMode returns api-key when ANTHROPIC_API_KEY is set (no copilot token)', async () => {
     const { detectAuthMode } = await import('./credential-proxy.js');
     Object.assign(mockEnv, { ANTHROPIC_API_KEY: 'sk-ant-test' });
     expect(detectAuthMode()).toBe('api-key');

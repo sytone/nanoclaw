@@ -4,9 +4,10 @@
  * The proxy injects real credentials so containers never see them.
  *
  * Auth modes:
- *   github-copilot: Proxy holds a GitHub token, exchanges it for a short-lived
- *                   Copilot token (refreshed automatically), and injects it as
- *                   Authorization: Bearer <copilot_token> on every request.
+ *   github-copilot: Proxy reads the host Copilot OAuth token from
+ *                   ~/.config/github-copilot/hosts.json, exchanges it for a
+ *                   short-lived Copilot token (refreshed automatically), and
+ *                   injects it as Authorization: Bearer <copilot_token>.
  *                   Requests are forwarded to api.githubcopilot.com.
  *   api-key:        Proxy injects x-api-key on every request.
  *                   (Legacy Anthropic API key mode — kept for compatibility.)
@@ -34,7 +35,6 @@ export function startCredentialProxy(
   host = '127.0.0.1',
 ): Promise<Server> {
   const secrets = readEnvFile([
-    'GITHUB_TOKEN',
     'ANTHROPIC_API_KEY',
     'CLAUDE_CODE_OAUTH_TOKEN',
     'ANTHROPIC_AUTH_TOKEN',
@@ -44,12 +44,9 @@ export function startCredentialProxy(
   ]);
 
   // Determine auth mode: Copilot takes priority, then API key, then OAuth.
-  // GITHUB_TOKEN from .env is preferred; fall back to the local copilot
-  // credentials file (~/.config/github-copilot/hosts.json) so users who have
-  // already done `copilot login` / `gh auth login` on the host don't need to
-  // set GITHUB_TOKEN in .env at all.
-  const githubToken =
-    secrets.GITHUB_TOKEN || readTokenFromCopilotConfigFile();
+  // The GitHub OAuth token is read from ~/.config/github-copilot/hosts.json —
+  // written by `gh auth login` / `copilot login` / `npm run copilot-auth`.
+  const githubToken = readTokenFromCopilotConfigFile();
   const authMode: AuthMode = githubToken
     ? 'github-copilot'
     : secrets.ANTHROPIC_API_KEY
@@ -176,9 +173,8 @@ export function startCredentialProxy(
 
 /** Detect which auth mode the host is configured for. */
 export function detectAuthMode(): AuthMode {
-  const secrets = readEnvFile(['GITHUB_TOKEN', 'ANTHROPIC_API_KEY']);
-  if (secrets.GITHUB_TOKEN || readTokenFromCopilotConfigFile())
-    return 'github-copilot';
+  const secrets = readEnvFile(['ANTHROPIC_API_KEY']);
+  if (readTokenFromCopilotConfigFile()) return 'github-copilot';
   if (secrets.ANTHROPIC_API_KEY) return 'api-key';
   return 'oauth';
 }

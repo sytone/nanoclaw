@@ -25,7 +25,6 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { logger } from './logger.js';
-import { readEnvFile } from './env.js';
 
 // Well-known client ID for GitHub Copilot device-code flow.
 // Users may override with their own OAuth app's client ID via GITHUB_OAUTH_CLIENT_ID.
@@ -265,7 +264,8 @@ export class CopilotTokenCache {
 }
 
 /**
- * Interactive CLI: run the OAuth device-code flow and save GITHUB_TOKEN to .env.
+ * Interactive CLI: run the OAuth device-code flow and save the token to
+ * ~/.config/github-copilot/hosts.json.
  * Run via: npm run copilot-auth
  */
 export async function runDeviceCodeFlow(): Promise<void> {
@@ -290,7 +290,7 @@ export async function runDeviceCodeFlow(): Promise<void> {
     clientId,
   );
 
-  console.log('✅  Authorised!  Saving GITHUB_TOKEN to .env…');
+  console.log('✅  Authorised!');
 
   // Verify the token can exchange for a Copilot token
   try {
@@ -306,26 +306,19 @@ export async function runDeviceCodeFlow(): Promise<void> {
     );
   }
 
-  // Write token to .env
-  writeGithubToken(token);
+  // Write token to ~/.config/github-copilot/hosts.json
+  writeCopilotHostsFile(token);
 
   console.log(
     '\n✅  Done!  Run `npm start` or `npm run dev` to start NanoClaw.',
   );
 }
 
-/** Read the current GitHub token from .env (without exposing all secrets). */
-export function readGithubToken(): string | undefined {
-  const secrets = readEnvFile(['GITHUB_TOKEN']);
-  return secrets.GITHUB_TOKEN || undefined;
-}
-
 /**
  * Read the GitHub OAuth token from the local Copilot CLI credentials file
  * (`~/.config/github-copilot/hosts.json`).  This is the same file that the
- * `gh` CLI and VS Code Copilot extension write after a `copilot login` /
- * `gh auth login` flow, so users who have already authenticated on the host
- * do not need to set `GITHUB_TOKEN` in `.env` at all.
+ * `gh` CLI, VS Code Copilot extension, and `npm run copilot-auth` write after
+ * a `copilot login` / `gh auth login` flow.
  *
  * Returns `undefined` when the file is absent or cannot be parsed.
  */
@@ -346,30 +339,31 @@ export function readTokenFromCopilotConfigFile(): string | undefined {
     >;
     // Prefer github.com; fall back to first entry that has a token
     const entry =
-      hosts['github.com'] ??
-      Object.values(hosts).find((v) => v.oauth_token);
+      hosts['github.com'] ?? Object.values(hosts).find((v) => v.oauth_token);
     return entry?.oauth_token || undefined;
   } catch {
     return undefined;
   }
 }
 
-/** Append or update GITHUB_TOKEN in the .env file. */
-function writeGithubToken(token: string): void {
-  const envPath = path.join(process.cwd(), '.env');
+/** Write the GitHub OAuth token to ~/.config/github-copilot/hosts.json. */
+function writeCopilotHostsFile(token: string): void {  const hostsDir = path.join(os.homedir(), '.config', 'github-copilot');
+  const hostsFile = path.join(hostsDir, 'hosts.json');
 
-  let content = '';
-  if (fs.existsSync(envPath)) {
-    content = fs.readFileSync(envPath, 'utf-8');
+  fs.mkdirSync(hostsDir, { recursive: true });
+
+  let hosts: Record<string, { oauth_token?: string; user?: string }> = {};
+  if (fs.existsSync(hostsFile)) {
+    try {
+      hosts = JSON.parse(fs.readFileSync(hostsFile, 'utf-8'));
+    } catch {
+      // ignore — overwrite with fresh content
+    }
   }
 
-  if (/^GITHUB_TOKEN=/m.test(content)) {
-    content = content.replace(/^GITHUB_TOKEN=.*/m, `GITHUB_TOKEN=${token}`);
-  } else {
-    content =
-      content.trimEnd() + (content ? '\n' : '') + `GITHUB_TOKEN=${token}\n`;
-  }
-
-  fs.writeFileSync(envPath, content, { mode: 0o600 });
-  logger.info('GITHUB_TOKEN written to .env');
+  hosts['github.com'] = { ...hosts['github.com'], oauth_token: token };
+  fs.writeFileSync(hostsFile, JSON.stringify(hosts, null, 2) + '\n', {
+    mode: 0o600,
+  });
+  logger.info('OAuth token written to ~/.config/github-copilot/hosts.json');
 }

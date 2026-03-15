@@ -14,8 +14,8 @@ This branch (`copilot/port-to-github-copilot`) replaces the Claude agent runner 
 |---|---|---|
 | AI agent runner | `container/agent-runner/` — `@anthropic-ai/claude-agent-sdk` | `container-copilot/agent-runner/` — `openai` npm package |
 | Container image | `nanoclaw-agent:latest` (Claude Code inside) | `nanoclaw-copilot-agent:latest` (OpenAI-compatible loop) |
-| Credential proxy auth | API key or OAuth token for Anthropic | GitHub OAuth token → auto-refreshed Copilot token |
-| Credential env var | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` | `GITHUB_TOKEN` |
+| Credential proxy auth | API key or OAuth token for Anthropic | Host Copilot OAuth token (from `~/.config/github-copilot/hosts.json`) |
+| Credential env var | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` | *(none — read from host config file)* |
 | Host-side orchestration | unchanged | unchanged |
 | Channels, IPC, scheduling | unchanged | unchanged |
 
@@ -65,7 +65,7 @@ Containers never see the real GitHub token. The host runs a lightweight HTTP pro
 Container OpenAI client
   └── ANTHROPIC_BASE_URL=http://host.docker.internal:3001
         └── [Credential Proxy — src/credential-proxy.ts]
-              ├── reads GITHUB_TOKEN from .env
+              ├── reads token from ~/.config/github-copilot/hosts.json
               ├── exchanges for short-lived Copilot token (expires ~1 hour)
               ├── auto-refreshes before expiry
               └── forwards to https://api.githubcopilot.com
@@ -77,7 +77,7 @@ The Copilot container reads `ANTHROPIC_BASE_URL` (the same env var the Claude co
 
 ## Authentication Setup
 
-### Step 1 — GitHub OAuth device-code flow
+### Step 1 — Authenticate on the host
 
 Run the interactive auth helper:
 
@@ -85,22 +85,29 @@ Run the interactive auth helper:
 npm run copilot-auth
 ```
 
-This walks through the GitHub OAuth device-code flow:
+Or use the GitHub CLI if you already have it installed:
+
+```bash
+gh auth login
+```
+
+Both write a GitHub OAuth token to `~/.config/github-copilot/hosts.json`. NanoClaw reads this file automatically — no `.env` variable is needed.
+
+The `npm run copilot-auth` flow:
 
 1. Opens `https://github.com/login/device`
 2. Prompts you to enter a one-time code
 3. Polls until you authorise
 4. Exchanges the GitHub token for a Copilot token to verify it works
-5. Writes `GITHUB_TOKEN=<token>` to your `.env` file
+5. Writes the token to `~/.config/github-copilot/hosts.json`
 
 The token is a standard GitHub personal access token with `copilot` scope. It does **not** expire unless you revoke it in [GitHub settings → Applications](https://github.com/settings/apps). The short-lived Copilot API tokens (≈1 hour) are refreshed automatically by the credential proxy — you never need to re-run `copilot-auth` unless you revoke the token.
 
 ### Step 2 — Verify (optional)
 
 ```bash
-# Should print "github-copilot" if GITHUB_TOKEN is in .env
+# Should print "github-copilot" if ~/.config/github-copilot/hosts.json has a token
 node -e "
-const {readEnvFile} = await import('./dist/env.js');
 const {detectAuthMode} = await import('./dist/credential-proxy.js');
 console.log(detectAuthMode());
 "
@@ -113,7 +120,7 @@ console.log(detectAuthMode());
 | `Copilot token exchange failed: 401` | Your account doesn't have a Copilot subscription, or the subscription is paused |
 | `Copilot token exchange failed: 403` | Copilot access may be restricted by your org policy |
 | `Device code request failed` | Check internet connectivity; GitHub may be down |
-| Token not refreshing | Restart NanoClaw — the proxy reads `.env` at startup |
+| Token not refreshing | Restart NanoClaw — the proxy reads `~/.config/github-copilot/hosts.json` at startup |
 
 ---
 
@@ -152,9 +159,6 @@ The model is baked into the image as an ENV default but can be overridden per-bu
 Add to your `.env` (copy from `.env.example`):
 
 ```bash
-# Required: obtained via "npm run copilot-auth"
-GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
-
 # Required: point to the Copilot container image
 CONTAINER_IMAGE=nanoclaw-copilot-agent:latest
 
@@ -162,7 +166,7 @@ CONTAINER_IMAGE=nanoclaw-copilot-agent:latest
 ASSISTANT_NAME=Andy
 ```
 
-That's all. The existing `CREDENTIAL_PROXY_PORT`, `CONTAINER_TIMEOUT`, `IDLE_TIMEOUT`, `MAX_CONCURRENT_CONTAINERS` etc. all work unchanged.
+Authentication is read from `~/.config/github-copilot/hosts.json` automatically — no token variable is needed. Run `npm run copilot-auth` or `gh auth login` to authenticate.
 
 ---
 
@@ -204,7 +208,7 @@ npm install
 npm run copilot-auth        # authenticate once
 cd container-copilot && ./build.sh && cd ..
 cp .env.example .env
-# edit .env: set GITHUB_TOKEN and CONTAINER_IMAGE
+# edit .env: set CONTAINER_IMAGE=nanoclaw-copilot-agent:latest
 npm run dev
 ```
 
@@ -230,7 +234,7 @@ This branch is designed to minimise divergence from upstream so that nightly ups
 | File | Change | Conflict risk |
 |---|---|---|
 | `src/credential-proxy.ts` | Added `github-copilot` auth mode; existing `api-key` and `oauth` modes unchanged | Low — new code path only |
-| `setup/verify.ts` | Check `GITHUB_TOKEN` in addition to Anthropic keys | Low — one line |
+| `setup/verify.ts` | Check copilot config file for credentials instead of `.env` | Low — one change |
 | `setup/environment.test.ts` | Updated credential detection test | Low — test-only |
 | `.env.example` | Copilot vars documented | Low |
 | `package.json` | Added `copilot-auth` script | Low |
@@ -288,7 +292,7 @@ User message (WhatsApp / Telegram / Slack / Discord / Gmail)
                               │  Credential Proxy :3001      │
                               │  src/credential-proxy.ts    │
                               │  github-copilot mode:        │
-                              │  - reads GITHUB_TOKEN        │
+                              │  - reads hosts.json          │
                               │  - exchanges → Copilot token │
                               │  - injects Authorization     │
                               └──────────────┬──────────────┘
