@@ -15,6 +15,9 @@ jobs:
           cache: npm
       - run: npm ci
 
+      - name: Skills audit strict
+        run: npm run skills:audit:strict
+
       - name: Format check
         run: npm run format:check
 

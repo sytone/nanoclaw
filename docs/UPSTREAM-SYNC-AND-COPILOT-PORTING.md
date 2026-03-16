@@ -121,6 +121,13 @@ If skill files changed upstream or branch docs changed:
 npm run skills:refresh
 ```
 
+`skills:refresh` includes AGENTS migration automation:
+
+- Renames repository memory files from `CLAUDE.md` to `AGENTS.md`
+- Rewrites tracked file references from `CLAUDE.md` to `AGENTS.md`
+- Syncs `.claude/skills` to `.github/skills`
+- Runs deterministic Copilot migration and compatibility audit
+
 If you want semantic migration in parallel fleet mode:
 
 ```bash
@@ -130,6 +137,13 @@ npm run skills:fleet:fast
 ```
 
 Fleet mode uses `agency copilot` with autopilot and runs multiple skill agents concurrently.
+It also reconciles any reintroduced `CLAUDE.md` files into canonical `AGENTS.md` files before skill migration.
+
+Optional opt-out for memory reconciliation:
+
+```bash
+npm run skills:fleet -- --skip-memory-reconcile
+```
 
 ## 6. Validate Build and Tests
 
@@ -212,6 +226,20 @@ npm run build
 npm test
 npm run skills:refresh
 npm run skills:fleet -- --skip-prep
+```
+
+## Autonomous Agent Mode
+
+If you want one agent to run the full workflow independently:
+
+```bash
+npm run upstream:sync:migrate
+```
+
+Optional parameters:
+
+```bash
+bash scripts/run-upstream-sync-copilot-migrator.sh --strategy rebase --workers 8 --model gpt-5.3-codex
 ```
 
 ## Notes for This Repository

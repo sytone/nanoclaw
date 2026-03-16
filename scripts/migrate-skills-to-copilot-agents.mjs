@@ -1,44 +1,14 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { REPLACEMENT_RULES, buildRegex, isScannableTextFile } from './copilot-migration-rules.mjs';
 
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const sourceRoot = path.join(repoRoot, '.github', 'skills');
 const destinationRoot = path.join(repoRoot, '.github', 'agents');
 const reportPath = path.join(destinationRoot, 'migration-report.md');
 
-const REPLACEMENTS = [
-  {
-    key: 'AskUserQuestion tool rename',
-    regex: /\bAskUserQuestion\b/g,
-    replacement: 'ask_user'
-  },
-  {
-    key: 'Claude brand rename',
-    regex: /\bClaude\b/g,
-    replacement: 'GitHub Copilot'
-  },
-  {
-    key: 'Anthropic brand rename',
-    regex: /\bAnthropic\b/g,
-    replacement: 'GitHub Copilot'
-  },
-  {
-    key: 'CLAUDE memory file rename',
-    regex: /\bCLAUDE\.md\b/g,
-    replacement: 'AGENTS.md'
-  },
-  {
-    key: 'OAuth env var rename',
-    regex: /\bCLAUDE_CODE_OAUTH_TOKEN\b/g,
-    replacement: 'GitHub Copilot host authentication (~/.config/github-copilot/hosts.json)'
-  },
-  {
-    key: 'API key env var rename',
-    regex: /\bANTHROPIC_API_KEY\b/g,
-    replacement: 'GitHub Copilot host authentication (~/.config/github-copilot/hosts.json)'
-  }
-];
+const SKIP_FILES = new Set(['README.md', 'copilot-compatibility-report.md', 'skill-sync-map.md', 'sync-summary.json']);
 
 function ensureDirectory(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
@@ -56,17 +26,35 @@ function listSkillDirectories(dirPath) {
     .sort();
 }
 
+function walkFiles(dirPath, files = []) {
+  const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  for (const entry of entries) {
+    const entryPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      walkFiles(entryPath, files);
+      continue;
+    }
+    files.push(entryPath);
+  }
+  return files;
+}
+
+function toRepoRelative(filePath) {
+  return path.relative(repoRoot, filePath).split(path.sep).join('/');
+}
+
 function applyReplacements(content) {
   let updated = content;
   const counts = new Map();
 
-  for (const rule of REPLACEMENTS) {
+  for (const rule of REPLACEMENT_RULES) {
+    const regex = buildRegex(rule);
     const before = updated;
-    updated = updated.replace(rule.regex, rule.replacement);
+    updated = updated.replace(regex, rule.replacement);
 
     if (before !== updated) {
-      const matchCount = (before.match(rule.regex) || []).length;
-      counts.set(rule.key, (counts.get(rule.key) || 0) + matchCount);
+      const matchCount = (before.match(regex) || []).length;
+      counts.set(rule.title, (counts.get(rule.title) || 0) + matchCount);
     }
   }
 
@@ -133,6 +121,42 @@ function main() {
 
   ensureDirectory(destinationRoot);
 
+  const allFiles = walkFiles(sourceRoot);
+  const processedFiles = [];
+  const skippedFiles = [];
+  const migratedFiles = [];
+  const globalCounts = new Map();
+
+  for (const filePath of allFiles) {
+    const relativePath = toRepoRelative(filePath);
+    const relativeToSkillsRoot = path.relative(sourceRoot, filePath).split(path.sep).join('/');
+    if (!relativeToSkillsRoot.includes('/')) {
+      continue;
+    }
+
+    if (SKIP_FILES.has(path.basename(filePath))) {
+      continue;
+    }
+
+    if (!isScannableTextFile(filePath)) {
+      skippedFiles.push(relativePath);
+      continue;
+    }
+
+    const sourceContent = fs.readFileSync(filePath, 'utf8');
+    const { updated, counts } = applyReplacements(sourceContent);
+    processedFiles.push(relativePath);
+
+    if (updated !== sourceContent) {
+      fs.writeFileSync(filePath, updated, 'utf8');
+      migratedFiles.push(relativePath);
+    }
+
+    for (const [key, count] of counts.entries()) {
+      globalCounts.set(key, (globalCounts.get(key) || 0) + count);
+    }
+  }
+
   const skillDirs = listSkillDirectories(sourceRoot).filter((skillName) =>
     fs.existsSync(path.join(sourceRoot, skillName, 'SKILL.md'))
   );
@@ -146,12 +170,7 @@ function main() {
   for (const skillName of skillDirs) {
     const sourcePath = path.join(sourceRoot, skillName, 'SKILL.md');
     const sourceContent = fs.readFileSync(sourcePath, 'utf8');
-    const { updated, counts } = applyReplacements(sourceContent);
-
-    // Keep .github/skills content migrated for Copilot compatibility.
-    if (updated !== sourceContent) {
-      fs.writeFileSync(sourcePath, updated, 'utf8');
-    }
+    const { counts } = applyReplacements(sourceContent);
 
     const outputPath = path.join(destinationRoot, `${skillName}.agent.md`);
     const outputContent = buildAgentFile(skillName, sourceContent, counts);
@@ -174,9 +193,37 @@ function main() {
     reportLines.push('');
   }
 
+  reportLines.push('## Global Migration Summary');
+  reportLines.push('');
+  reportLines.push(`- Scanned text files: ${processedFiles.length}`);
+  reportLines.push(`- Migrated files: ${migratedFiles.length}`);
+  reportLines.push(`- Skipped non-text files: ${skippedFiles.length}`);
+  if (globalCounts.size === 0) {
+    reportLines.push('- Replacement totals: none');
+  } else {
+    reportLines.push('- Replacement totals:');
+    for (const [key, count] of [...globalCounts.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      reportLines.push(`  - ${key}: ${count}`);
+    }
+  }
+  if (skippedFiles.length > 0) {
+    reportLines.push('- Skipped file examples:');
+    for (const file of skippedFiles.slice(0, 10)) {
+      reportLines.push(`  - ${file}`);
+    }
+    if (skippedFiles.length > 10) {
+      reportLines.push(`  - ... ${skippedFiles.length - 10} more skipped files`);
+    }
+  }
+  reportLines.push('');
+
   fs.writeFileSync(reportPath, `${reportLines.join('\n')}\n`, 'utf8');
 
   console.log(`Migrated ${skillDirs.length} skills to .github/agents`);
+  console.log(`Scanned ${processedFiles.length} text files and updated ${migratedFiles.length}.`);
+  if (skippedFiles.length > 0) {
+    console.log(`Skipped ${skippedFiles.length} non-text files.`);
+  }
   console.log('Wrote .github/agents/migration-report.md');
 }
 

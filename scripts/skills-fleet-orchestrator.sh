@@ -8,6 +8,7 @@ WORKERS="${SKILLS_FLEET_WORKERS:-4}"
 SKIP_PREP="false"
 MODEL="${SKILLS_FLEET_MODEL:-gpt-5.3-codex}"
 SKILL_FILTER=""
+SKIP_MEMORY_RECONCILE="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -27,9 +28,13 @@ while [[ $# -gt 0 ]]; do
       SKILL_FILTER="$2"
       shift 2
       ;;
+    --skip-memory-reconcile)
+      SKIP_MEMORY_RECONCILE="true"
+      shift
+      ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: scripts/skills-fleet-orchestrator.sh [--workers N] [--skip-prep] [--model MODEL] [--skill NAME]"
+      echo "Usage: scripts/skills-fleet-orchestrator.sh [--workers N] [--skip-prep] [--model MODEL] [--skill NAME] [--skip-memory-reconcile]"
       exit 1
       ;;
   esac
@@ -40,11 +45,67 @@ if ! command -v agency >/dev/null 2>&1; then
   exit 1
 fi
 
+reconcile_memory_file() {
+  local legacy_file="$1"
+  local agent_file="$2"
+  local log_file="$3"
+
+  if [[ ! -f "$legacy_file" ]]; then
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$agent_file")"
+  if [[ ! -f "$agent_file" ]]; then
+    cp "$legacy_file" "$agent_file"
+  fi
+
+  local prompt
+  prompt=$(cat <<EOF
+You are reconciling a legacy Claude memory file into the canonical AGENTS file.
+
+Files:
+- Legacy source: ${legacy_file}
+- Canonical target: ${agent_file}
+
+Required actions:
+1) Compare both files and merge any meaningful information from ${legacy_file} into ${agent_file}.
+2) Keep structure clean, concise, and agent-agnostic.
+3) Preserve repository-specific instructions and operational details.
+4) Do not remove important guidance already present in ${agent_file}.
+5) Save the final merged result to ${agent_file}.
+
+Return a short summary of what changed.
+EOF
+)
+
+agency copilot \
+  --model "$MODEL" \
+  --autopilot \
+  --allow-all-tools \
+  --allow-all-paths \
+  --allow-all-urls \
+  -p "$prompt" \
+  -s >>"$log_file" 2>&1
+
+  rm -f "$legacy_file"
+}
+
+reconcile_claude_memory_files() {
+  local mem_log="$LOG_DIR/memory-reconcile.log"
+  : > "$mem_log"
+
+  echo "[fleet] Reconciling legacy CLAUDE.md files into AGENTS.md"
+
+  reconcile_memory_file "CLAUDE.md" "AGENTS.md" "$mem_log"
+  reconcile_memory_file "groups/main/CLAUDE.md" "groups/main/AGENTS.md" "$mem_log"
+  reconcile_memory_file "groups/global/CLAUDE.md" "groups/global/AGENTS.md" "$mem_log"
+
+  echo "[fleet] Memory reconciliation complete"
+}
+
 if [[ "$SKIP_PREP" != "true" ]]; then
-  echo "[fleet] Running prep: sync + migrate + audit"
-  npm run skills:sync
-  npm run skills:migrate
-  npm run skills:audit
+  echo "[fleet] Running prep: skills:refresh"
+  npm run skills:refresh
 fi
 
 mapfile -t SKILLS < <(find .github/skills -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
@@ -60,6 +121,10 @@ LOG_DIR=".github/agents/fleet-logs"
 STATUS_FILE="$LOG_DIR/status.log"
 mkdir -p "$LOG_DIR"
 : > "$STATUS_FILE"
+
+if [[ "$SKIP_MEMORY_RECONCILE" != "true" ]]; then
+  reconcile_claude_memory_files
+fi
 
 export ROOT_DIR LOG_DIR STATUS_FILE MODEL
 

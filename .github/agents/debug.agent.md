@@ -26,10 +26,7 @@ It is responsible for reviewing the source skill in `.claude/skills`, syncing up
 
 ## Copilot Migration Rules
 
-- Claude brand rename: 12
-- CLAUDE memory file rename: 1
-- OAuth env var rename: 6
-- API key env var rename: 6
+- No deterministic replacements were detected in current source snapshot.
 
 - Replace `AskUserQuestion` references with `ask_user` usage patterns.
 - Replace Claude-only auth/env references with GitHub Copilot host-auth flow.

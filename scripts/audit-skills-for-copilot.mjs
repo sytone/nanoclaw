@@ -1,42 +1,28 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { REPLACEMENT_RULES, buildRegex, isScannableTextFile } from './copilot-migration-rules.mjs';
 
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const skillsRoot = path.join(repoRoot, '.github', 'skills');
 const reportPath = path.join(skillsRoot, 'copilot-compatibility-report.md');
-
-const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.yaml', '.yml', '.json', '.sh']);
+const SKIP_FILES = new Set(['README.md', 'copilot-compatibility-report.md', 'skill-sync-map.md', 'sync-summary.json']);
 
 const RULES = [
-  {
-    id: 'claude-branding',
-    title: 'Claude-Specific Branding',
-    description: 'References to Claude or Anthropic that usually need renaming for Copilot.',
-    regex: /\b(Claude|Anthropic|CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY|claude setup-token)\b/i,
-    suggestion: 'Replace with GitHub Copilot terminology and environment variables where appropriate.'
-  },
-  {
-    id: 'claude-memory-files',
-    title: 'Claude Memory File References',
-    description: 'Direct references to CLAUDE.md memory files.',
-    regex: /\bCLAUDE\.md\b/,
-    suggestion: 'Replace CLAUDE.md references with AGENTS.md as the agent-agnostic memory/instructions file.'
-  },
-  {
-    id: 'claude-tooling',
-    title: 'Claude-Specific Tooling Names',
-    description: 'Mentions of Claude-only tool APIs.',
-    regex: /\bAskUserQuestion\b/,
-    suggestion: 'Replace AskUserQuestion with ask_user interaction patterns and options/freeform handling.'
-  },
   {
     id: 'claude-commands',
     title: 'Claude Slash Command Links',
     description: 'Skill-to-skill links that rely on Claude slash command semantics.',
     regex: /\/[a-z0-9][a-z0-9-]*/i,
     suggestion: 'Verify command references map to Copilot agents/skills invocation flow.'
-  }
+  },
+  ...REPLACEMENT_RULES.map((rule) => ({
+    id: `migration-rule-${rule.id}`,
+    title: `Migration Rule Drift: ${rule.title}`,
+    description: `Pattern still present after migration: ${rule.pattern}`,
+    regex: buildRegex({ ...rule, flags: rule.flags.replace('g', '') || 'i' }),
+    suggestion: 'Run npm run skills:migrate and review files that were skipped as non-text.'
+  }))
 ];
 
 function walkFiles(dir, files = []) {
@@ -48,10 +34,7 @@ function walkFiles(dir, files = []) {
       continue;
     }
 
-    const ext = path.extname(entry.name).toLowerCase();
-    if (TEXT_EXTENSIONS.has(ext)) {
-      files.push(fullPath);
-    }
+    files.push(fullPath);
   }
   return files;
 }
@@ -73,21 +56,38 @@ function toRepoRelative(filePath) {
   return path.relative(repoRoot, filePath).split(path.sep).join('/');
 }
 
+function parseArgs(argv) {
+  return {
+    failOnSkipped: argv.includes('--fail-on-skipped')
+  };
+}
+
 function main() {
+  const options = parseArgs(process.argv.slice(2));
+
   if (!fs.existsSync(skillsRoot)) {
     console.error('ERROR: .github/skills does not exist. Run skills:sync first.');
     process.exit(1);
   }
 
   const allFiles = walkFiles(skillsRoot).filter((filePath) => {
-    const normalized = toRepoRelative(filePath);
-    return !normalized.endsWith('copilot-compatibility-report.md') && !normalized.endsWith('skill-sync-map.md');
+    const relativeToSkillsRoot = path.relative(skillsRoot, filePath).split(path.sep).join('/');
+    return relativeToSkillsRoot.includes('/') && !SKIP_FILES.has(path.basename(filePath));
   });
+
+  const scannedFiles = [];
+  const skippedFiles = [];
 
   const findings = [];
 
   for (const filePath of allFiles) {
+    if (!isScannableTextFile(filePath)) {
+      skippedFiles.push(toRepoRelative(filePath));
+      continue;
+    }
+
     const content = fs.readFileSync(filePath, 'utf8');
+    scannedFiles.push(toRepoRelative(filePath));
     const lines = content.split(/\r?\n/);
     const perRule = [];
 
@@ -118,6 +118,8 @@ function main() {
   lines.push(`Generated: ${new Date().toISOString()}`);
   lines.push('');
   lines.push(`Scanned files: ${allFiles.length}`);
+  lines.push(`Scannable text files: ${scannedFiles.length}`);
+  lines.push(`Skipped non-text files: ${skippedFiles.length}`);
   lines.push(`Files with findings: ${findings.length}`);
   lines.push(`Total findings: ${totalMatches}`);
   lines.push('');
@@ -145,6 +147,20 @@ function main() {
     }
   }
 
+  if (skippedFiles.length > 0) {
+    lines.push('## Skipped Non-Text Files');
+    lines.push('');
+    lines.push('These files were skipped by content audit. If new instruction formats are added, extend scannable extensions in scripts/copilot-migration-rules.mjs.');
+    lines.push('');
+    for (const filePath of skippedFiles.slice(0, 30)) {
+      lines.push(`- ${filePath}`);
+    }
+    if (skippedFiles.length > 30) {
+      lines.push(`- ... ${skippedFiles.length - 30} more skipped files`);
+    }
+    lines.push('');
+  }
+
   lines.push('## Next Steps');
   lines.push('');
   lines.push('- Replace Claude-specific commands and env vars with Copilot equivalents.');
@@ -155,7 +171,15 @@ function main() {
   fs.writeFileSync(reportPath, `${lines.join('\n')}\n`, 'utf8');
 
   console.log(`Wrote report: ${toRepoRelative(reportPath)}`);
-  console.log(`Scanned ${allFiles.length} files, found ${totalMatches} matches across ${findings.length} files.`);
+  console.log(`Scanned ${scannedFiles.length}/${allFiles.length} files, found ${totalMatches} matches across ${findings.length} files.`);
+  if (skippedFiles.length > 0) {
+    console.log(`Skipped ${skippedFiles.length} non-text files (listed in report).`);
+  }
+
+  if (options.failOnSkipped && skippedFiles.length > 0) {
+    console.error('ERROR: Strict audit failed because skipped non-text files were detected.');
+    process.exit(2);
+  }
 }
 
 main();
