@@ -4,6 +4,7 @@
  */
 import { ChildProcess, exec, spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import {
@@ -198,6 +199,19 @@ function buildVolumeMounts(
     containerPath: '/app/src',
     readonly: false,
   });
+
+  // Mount host's GitHub Copilot CLI credentials read-only so the copilot
+  // binary inside the container can authenticate using the existing
+  // `copilot login` session without any extra login steps.
+  // The credentials directory is user-specific and never stored in the image.
+  const copilotCredsDir = path.join(os.homedir(), '.config', 'github-copilot');
+  if (fs.existsSync(copilotCredsDir)) {
+    mounts.push({
+      hostPath: copilotCredsDir,
+      containerPath: '/home/node/.config/github-copilot',
+      readonly: true,
+    });
+  }
 
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {

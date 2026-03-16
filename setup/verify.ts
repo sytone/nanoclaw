@@ -98,11 +98,25 @@ export async function run(_args: string[]): Promise<void> {
 
   // 3. Check credentials
   let credentials = 'missing';
-  const envFile = path.join(projectRoot, '.env');
-  if (fs.existsSync(envFile)) {
-    const envContent = fs.readFileSync(envFile, 'utf-8');
-    if (/^(CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY)=/m.test(envContent)) {
-      credentials = 'configured';
+  const copilotHostsFile = path.join(
+    homeDir,
+    '.config',
+    'github-copilot',
+    'hosts.json',
+  );
+  if (fs.existsSync(copilotHostsFile)) {
+    try {
+      const hosts = JSON.parse(fs.readFileSync(copilotHostsFile, 'utf-8'));
+      if (
+        hosts['github.com']?.oauth_token ||
+        Object.values(hosts as Record<string, { oauth_token?: string }>).some(
+          (v) => v.oauth_token,
+        )
+      ) {
+        credentials = 'configured';
+      }
+    } catch {
+      // malformed file — leave as 'missing'
     }
   }
 

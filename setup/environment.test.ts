@@ -73,25 +73,18 @@ describe('registered groups DB query', () => {
 });
 
 describe('credentials detection', () => {
-  it('detects ANTHROPIC_API_KEY in env content', () => {
-    const content =
-      'SOME_KEY=value\nANTHROPIC_API_KEY=sk-ant-test123\nOTHER=foo';
+  it('detects oauth_token in copilot hosts.json', () => {
+    const hosts = { 'github.com': { oauth_token: 'ghp_test123' } };
     const hasCredentials =
-      /^(CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY)=/m.test(content);
-    expect(hasCredentials).toBe(true);
-  });
-
-  it('detects CLAUDE_CODE_OAUTH_TOKEN in env content', () => {
-    const content = 'CLAUDE_CODE_OAUTH_TOKEN=token123';
-    const hasCredentials =
-      /^(CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY)=/m.test(content);
+      hosts['github.com']?.oauth_token !== undefined;
     expect(hasCredentials).toBe(true);
   });
 
   it('returns false when no credentials', () => {
-    const content = 'ASSISTANT_NAME="Andy"\nOTHER=foo';
+    const hosts = {};
     const hasCredentials =
-      /^(CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY)=/m.test(content);
+      (hosts as Record<string, { oauth_token?: string }>)['github.com']
+        ?.oauth_token !== undefined;
     expect(hasCredentials).toBe(false);
   });
 });
