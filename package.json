@@ -15,6 +15,12 @@
     "prepare": "husky",
     "setup": "tsx setup/index.ts",
     "copilot-auth": "tsx src/copilot-auth-cli.ts",
+    "skills:sync": "node scripts/sync-skills-to-github.mjs",
+    "skills:migrate": "node scripts/migrate-skills-to-copilot-agents.mjs",
+    "skills:audit": "node scripts/audit-skills-for-copilot.mjs",
+    "skills:refresh": "npm run skills:sync && npm run skills:migrate && npm run skills:audit",
+    "skills:fleet": "bash scripts/skills-fleet-orchestrator.sh",
+    "skills:fleet:fast": "bash scripts/skills-fleet-orchestrator.sh --workers 8",
     "test": "vitest run",
     "test:watch": "vitest"
   },

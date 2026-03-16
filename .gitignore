@@ -36,3 +36,6 @@ groups/global/*
 .nanoclaw/
 
 agents-sdk-docs
+.github/agents/fleet-logs/status.log
+.github/skills/copilot-compatibility-report.md
+.github/agents/migration-report.md
